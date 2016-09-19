@@ -2,8 +2,29 @@
 use strict;
 use warnings;
 
-my $warn = 92.0;
-my $crit = 96.0;
+use Getopt::Std;
+
+getopt('wc');
+our($opt_w, $opt_c);
+
+my $warn = $opt_w || 75.0;
+my $crit = $opt_c || 90.0;
+
+# strip the percent sign from argument input
+$warn =~ s#%##x;
+$crit =~ s#%##x;
+
+if ($warn < 0 || $warn > 100.0) {
+  $warn = 75.0;
+} elsif ($warn < 50.0) {
+  $warn = 100.0 - $warn; #existing nagio0s check_disk plugin reports disk% free while lvs reports disk% used.
+}
+
+if ($crit < 0 || $crit > 100.0) {
+  $crit = 90.0;
+} elsif ($crit < $warn) { #if critical value is less than warn value, then the arg is referring to %free
+  $crit = 100.0 - $crit;
+}
 
 sub get_thinpools {
   my @lvsoutput = `lvs --noheadings --separator : -o lv_attr,lv_name,data_percent,metadata_percent`;
@@ -31,16 +52,16 @@ sub check_thinpools {
   for my $thinpool (get_thinpools()) {
     # Check metadata usage
     if ($thinpool->{metadata_percent} > $crit) {
-      add_error(2, "CRITICAL: Meta% of $thinpool->{lv_name} is $thinpool->{metadata_percent}")
+      add_error(2, "LVM Thinpool CRITICAL: $thinpool->{lv_name} Meta Usage is $thinpool->{metadata_percent}%")
     } elsif ($thinpool->{metadata_percent} > $warn) {
-      add_error(1, "WARNING: Meta% of $thinpool->{lv_name} is $thinpool->{metadata_percent}")
+      add_error(1, "LVM Thinpool WARNING: $thinpool->{lv_name} Meta Usage is $thinpool->{metadata_percent}%")
     }
 
     # Check data usage
     if ($thinpool->{data_percent} > $crit) {
-      add_error(2, "CRITICAL: Data% of $thinpool->{lv_name} is $thinpool->{data_percent}")
+      add_error(2, "LVM Thinpool CRITICAL: $thinpool->{lv_name} Data Usage is $thinpool->{data_percent}%")
     } elsif ($thinpool->{data_percent} > $warn) {
-      add_error(1, "WARNING: Data% of $thinpool->{lv_name} is $thinpool->{data_percent}")
+      add_error(1, "LVM Thinpool WARNING: $thinpool->{lv_name} Data Usage is $thinpool->{data_percent}%")
     }
   }
 
@@ -77,12 +98,14 @@ my @thinpools = get_thinpools();
 
 # No thinpool found?
 if (scalar @thinpools == 0) {
-  print "UNKNOWN: No thinpools found.\n";
+  print "UNKNOWN: No LVM Thinpools found.\n";
   exit 3;
 } else {
   check_thinpools();
   aggregate_errors();
 }
 
-print "OK - All thinpools OK\n";
+for my $thinpool (@thinpools) {
+  print "LVM Thinpool OK - $thinpool->{lv_name} Data Usage is $thinpool->{data_percent}%. Meta Usage is $thinpool->{metadata_percent}%\n";
+}
 exit 0;
